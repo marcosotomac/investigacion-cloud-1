@@ -7,7 +7,7 @@ Parameters:
     Default: api-students-cluster
   ECSServiceName:
     Type: String
-    Default: api-students-task-service-8ea4e40r
+    Default: api-students-task-service
   SecurityGroupIDs:
     Type: CommaDelimitedList
     Default: sg-07a9fd28cb24fb80e
@@ -17,18 +17,109 @@ Parameters:
   VpcID:
     Type: String
     Default: vpc-0e5c615a83896caba
+  DockerImageURI:
+    Type: String
+    Default: "206753054412.dkr.ecr.us-east-1.amazonaws.com/api-students:latest"
+    Description: "Docker image URI for the API Students application"
+  ContainerPort:
+    Type: Number
+    Default: 5000
+    Description: "Port where the Flask application runs"
   LoadBalancerName:
     Type: String
-    Default: ""
+    Default: "api-students-alb"
 
 Resources:
+  # ECS Cluster
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref ECSClusterName
+      CapacityProviders:
+        - FARGATE
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Weight: 1
+
+  # ECS Task Definition
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: api-students-task
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
+      TaskRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/LabRole"
+      ContainerDefinitions:
+        - Name: api-students-container
+          Image: !Ref DockerImageURI
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+              Protocol: tcp
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref CloudWatchLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+
+  # CloudWatch Log Group
+  CloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/api-students
+      RetentionInDays: 7
+
+  # Application Load Balancer
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Ref LoadBalancerName
+      Scheme: internet-facing
+      Type: application
+      Subnets: !Ref SubnetIDs
+      SecurityGroups: !Ref SecurityGroupIDs
+
+  # Target Group
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: api-students-tg
+      Port: !Ref ContainerPort
+      Protocol: HTTP
+      VpcId: !Ref VpcID
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+
+  # ALB Listener
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  # ECS Service (Updated)
   ECSService:
     Type: AWS::ECS::Service
+    DependsOn: ALBListener
     Properties:
-      Cluster: api-students-cluster
-      TaskDefinition: arn:aws:ecs:us-east-1:206753054412:task-definition/api-students-task:4
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref TaskDefinition
       LaunchType: FARGATE
-      ServiceName: api-students-task-service-8ea4e40r
+      ServiceName: !Ref ECSServiceName
       SchedulingStrategy: REPLICA
       DesiredCount: 1
       AvailabilityZoneRebalancing: ENABLED
@@ -37,6 +128,10 @@ Resources:
           AssignPublicIp: ENABLED
           SecurityGroups: !Ref SecurityGroupIDs
           Subnets: !Ref SubnetIDs
+      LoadBalancers:
+        - ContainerName: api-students-container
+          ContainerPort: !Ref ContainerPort
+          TargetGroupArn: !Ref TargetGroup
       PlatformVersion: LATEST
       DeploymentConfiguration:
         DeploymentCircuitBreaker:
@@ -55,8 +150,17 @@ Resources:
 
 Outputs:
   ClusterName:
-    Description: "The cluster used to create the service."
-    Value: !Ref ECSClusterName
+    Description: "The ECS cluster used to create the service."
+    Value: !Ref ECSCluster
   ECSService:
-    Description: "The created service."
+    Description: "The created ECS service."
     Value: !Ref ECSService
+  LoadBalancerDNS:
+    Description: "DNS name of the Application Load Balancer"
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+  LoadBalancerURL:
+    Description: "URL to access the API"
+    Value: !Sub "http://${ApplicationLoadBalancer.DNSName}"
+  TaskDefinition:
+    Description: "The ECS Task Definition"
+    Value: !Ref TaskDefinition
