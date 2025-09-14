@@ -23,7 +23,7 @@ Parameters:
     Description: "Docker image URI for the API Students application"
   ContainerPort:
     Type: Number
-    Default: 5000
+    Default: 8000
     Description: "Port where the Flask application runs"
   LoadBalancerName:
     Type: String
