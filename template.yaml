@@ -1,0 +1,62 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "The template used to create an ECS Service from the ECS Console."
+
+Parameters:
+  ECSClusterName:
+    Type: String
+    Default: api-students-cluster
+  ECSServiceName:
+    Type: String
+    Default: api-students-task-service-8ea4e40r
+  SecurityGroupIDs:
+    Type: CommaDelimitedList
+    Default: sg-07a9fd28cb24fb80e
+  SubnetIDs:
+    Type: CommaDelimitedList
+    Default: subnet-0d243de58c9d0fd50,subnet-06faf0680ad63d9e6,subnet-0e2dd72d2a78e6ae2,subnet-0f2f24f2c91ca0261,subnet-0b72b8d1d1c95df7a,subnet-06aef09eec3c0b7e1
+  VpcID:
+    Type: String
+    Default: vpc-0e5c615a83896caba
+  LoadBalancerName:
+    Type: String
+    Default: ""
+
+Resources:
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: api-students-cluster
+      TaskDefinition: arn:aws:ecs:us-east-1:206753054412:task-definition/api-students-task:4
+      LaunchType: FARGATE
+      ServiceName: api-students-task-service-8ea4e40r
+      SchedulingStrategy: REPLICA
+      DesiredCount: 1
+      AvailabilityZoneRebalancing: ENABLED
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups: !Ref SecurityGroupIDs
+          Subnets: !Ref SubnetIDs
+      PlatformVersion: LATEST
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        Strategy: ROLLING
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DeploymentController:
+        Type: ECS
+      ServiceConnectConfiguration:
+        Enabled: false
+      Tags: []
+      EnableECSManagedTags: true
+      EnableExecuteCommand: false
+
+Outputs:
+  ClusterName:
+    Description: "The cluster used to create the service."
+    Value: !Ref ECSClusterName
+  ECSService:
+    Description: "The created service."
+    Value: !Ref ECSService
